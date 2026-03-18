@@ -34,9 +34,11 @@
 
 ## 🚀 Installazione
 
-1. Scarica `index.php`
-2. Caricalo nella cartella del server che vuoi esporre
+1. Scarica `index.php` e `.htaccess`
+2. Caricali **entrambi** nella stessa cartella del server che vuoi esporre
 3. Apri il browser e visita quella cartella
+
+> ⚠️ **Importante:** caricare sempre `.htaccess` insieme a `index.php`. Senza di esso, i file nella cartella sono accessibili direttamente tramite URL anche senza password.
 
 Nessuna dipendenza da installare. Nessuna configurazione del database.
 
@@ -93,18 +95,24 @@ I prefissi vengono rimossi dal nome visualizzato all'utente.
 
 ## 🔒 Sicurezza
 
-- Il parametro `?file=` viene sanitizzato per impedire **directory traversal**
-- Solo le estensioni definite in `$ALLOWED_EXTENSIONS` vengono servite
-- Se `$LOGIN_REQUIRED = true`, i file non sono accessibili nemmeno via URL diretto senza autenticazione
-- La sessione scade dopo **1 ora** di inattività
+Il tool adotta **due livelli di protezione** che lavorano insieme:
 
-> ⚠️ La password è memorizzata **in chiaro** nel file. Per ambienti ad alta sicurezza si consiglia l'hash MD5/bcrypt o l'autenticazione del server web.
+1. **`.htaccess`** (lato server Apache) — blocca l'accesso diretto a qualsiasi file tramite URL. Anche chi conosce il percorso esatto del file non riesce a scaricarlo senza passare da `index.php`.
+2. **`index.php`** (lato PHP) — verifica l'autenticazione prima di servire qualsiasi file tramite il parametro `?file=`. Blocca anche eventuali tentativi di directory traversal.
+
+Ulteriori dettagli:
+- Solo le estensioni definite in `$ALLOWED_EXTENSIONS` vengono servite
+- La sessione scade dopo **1 ora** di inattività
+- I file di sistema (`index.php`, `.htaccess`, ecc.) sono esclusi anche se richiesti via URL
+
+> ⚠️ La password è memorizzata **in chiaro** nel file. Per ambienti ad alta sicurezza si consiglia l'autenticazione a livello di server web.
 
 ---
 
 ## 📋 Requisiti
 
 - PHP **7.4** o superiore
+- Server Apache con `mod_rewrite` abilitato e `AllowOverride All`
 - Estensione `session` abilitata (standard in quasi tutti i server)
 - Accesso in lettura alla directory da servire
 
@@ -114,7 +122,8 @@ I prefissi vengono rimossi dal nome visualizzato all'utente.
 
 ```
 public_html/documenti/
-├── index.php           ← questo file
+├── index.php           ← gestore principale
+├── .htaccess           ← blocca accesso diretto ai file ⚠️ necessario
 ├── Circolare_01.pdf
 ├── Avvisi/
 │   ├── Avviso_febbraio.pdf
