@@ -14,7 +14,7 @@
 
 | Schermata di login | Interfaccia principale |
 |:---:|:---:|
-| ![Login](login.jpg) | ![Home](home.jpg) |
+| ![Login](login.png) | ![Home](home.png) |
 
 ---
 
