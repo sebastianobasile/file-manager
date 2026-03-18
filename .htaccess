@@ -1,0 +1,10 @@
+Options -Indexes
+
+RewriteEngine On
+
+# Consenti accesso diretto solo a index.php
+RewriteRule ^index\.php$ - [L]
+
+# Blocca l'accesso diretto a qualsiasi file (non cartella)
+RewriteCond %{REQUEST_FILENAME} -f
+RewriteRule ^ - [F,L]
