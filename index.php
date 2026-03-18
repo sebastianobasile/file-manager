@@ -12,8 +12,8 @@ session_start();
 // ╚══════════════════════════════════════════════════════════════╝
 
 // ── 🔐 ACCESSO ──────────────────────────────────────────────────
-$LOGIN_REQUIRED = false;       // true = richiede password | false = accesso libero
-$PASSWORD       = "Basile_Cambiami";    // Password di accesso (testo in chiaro)
+$LOGIN_REQUIRED = true;       // true = richiede password | false = accesso libero
+$PASSWORD       = "elisab";    // Password di accesso (testo in chiaro)
 
 // ── 🪟 APERTURA FILE ─────────────────────────────────────────────
 $OPEN_IN_NEW_TAB = true;       // true = nuova scheda | false = stessa finestra
@@ -41,7 +41,7 @@ $NEW_TAB_SUFFIX    = '_NUOVO';   // Suffisso per forzare apertura in nuova sched
 $LOGIN_TITLE       = '<i class="fas fa-lock" style="margin-right:5px;"></i>Accesso Riservato';
 $LOGIN_DESCRIPTION = '<b>Inserisci la password ricevuta via email o</b><br>
 richiedila gratuitamente a <i>Sebastiano <b>Basile</b></i><br>
-tramite il <a href="https://forms.gle/xxxxxxxxxxxx" target="_blank" rel="noopener noreferrer">modulo contatti</a>.';
+tramite il <a href="https://forms.gle/RK9vr5eUMu722sYX9" target="_blank" rel="noopener noreferrer">modulo contatti</a>.';
 
 // ── 🎨 TESTI INTERFACCIA PRINCIPALE ─────────────────────────────
 $MAIN_TITLE = '<i class="fas fa-folder-open lock-color" style="margin-right:5px;"></i> FILE MANAGER – SEBASTIANO BASILE';
@@ -102,6 +102,13 @@ if (isset($_GET['file'])) {
     // Sanitizza il percorso: impedisce directory traversal
     $requested = ltrim(str_replace(['..', '\\'], '', $_GET['file']), '/');
     $file_path  = './' . $requested;
+
+    // Blocca esplicitamente i file di sistema anche se qualcuno li passa via ?file=
+    $basename = basename($file_path);
+    if (in_array($basename, array_merge($EXCLUDED_FILES, ['index.php', '.htaccess']))) {
+        http_response_code(403);
+        exit('<p style="font-family:sans-serif;padding:20px;">🚫 Accesso non consentito.</p>');
+    }
 
     if (!file_exists($file_path) || !is_file($file_path)) {
         http_response_code(404);
