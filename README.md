@@ -10,6 +10,14 @@
 
 ---
 
+## 📸 Screenshot
+
+| Schermata di login | Interfaccia principale |
+|:---:|:---:|
+| ![Login](login.jpg) | ![Home](home.jpg) |
+
+---
+
 ## ✨ Caratteristiche
 
 - **File unico** — tutto il necessario è in `index.php`, nessun file esterno richiesto
@@ -114,6 +122,16 @@ public_html/documenti/
 └── Modulistica/
     └── Modulo_iscrizione.docx
 ```
+
+---
+
+## ☕ Supporta il progetto
+
+Se questo strumento ti è utile, puoi offrire un contributo volontario tramite PayPal:
+
+[![Donate PayPal](https://img.shields.io/badge/Dona%20con-PayPal-009cde?logo=paypal&logoColor=white)](https://www.paypal.com/paypalme/superscuola)
+
+Ogni contributo, anche piccolo, aiuta a mantenere e migliorare il progetto. Grazie! 🙏
 
 ---
 
