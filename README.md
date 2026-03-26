@@ -24,6 +24,7 @@
 - **Navigazione ricorsiva** di cartelle e sottocartelle
 - **Protezione password** opzionale (attivabile/disattivabile in un'unica riga)
 - **Apertura file inline o download** configurabile per tipo di estensione
+- **📤 UPLOAD** UPLOAD_ENABLED + cartella + dimensione + estensioni
 - **File e cartelle nascosti** definibili con semplici array
 - **File riservati** segnalati con icona 🔒 tramite prefisso nel nome
 - **Apertura in nuova scheda** controllabile globalmente o per singolo file
