@@ -12,8 +12,8 @@
 
 ## 📸 Screenshot
 
-| Schermata di login | Interfaccia principale |Azioni File e Cartelle |
-|:---:|:---:|
+| Schermata di login | Interfaccia principale | Azioni File e Cartelle |
+|:---:|:---:|:---:|
 | ![Login](screenshots/login.png) | ![Home](screenshots/home.png) |![Azioni](screenshots/Azioni_file_e_cartelle.jpg) |
 
 ---
