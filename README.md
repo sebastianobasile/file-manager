@@ -5,7 +5,7 @@
 
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4?logo=php&logoColor=white)
 ![Licenza](https://img.shields.io/badge/Licenza-MIT-green)
-![Versione](https://img.shields.io/badge/Versione-6.0-blue)
+![Versione](https://img.shields.io/badge/Versione-6.2-blue)
 ![Scuole italiane](https://img.shields.io/badge/Destinatari-Scuole%20italiane-red)
 
 ---
@@ -24,10 +24,13 @@
 - **Navigazione ricorsiva** di cartelle e sottocartelle
 - **Protezione password** opzionale (attivabile/disattivabile in un'unica riga)
 - **Apertura file inline o download** configurabile per tipo di estensione
-- **📤 UPLOAD** UPLOAD_ENABLED + cartella + dimensione + estensioni
+- **📤 Upload** nella cartella corrente o direttamente nella root, con controllo su dimensione ed estensioni
+- **📁 Gestione cartelle completa** — crea, rinomina ed elimina cartelle direttamente dall'interfaccia
+- **🖱️ Drag-and-drop** — sposta i file tra le cartelle con un semplice trascinamento
 - **File e cartelle nascosti** definibili con semplici array
 - **File riservati** segnalati con icona 🔒 tramite prefisso nel nome
 - **Apertura in nuova scheda** controllabile globalmente o per singolo file
+- **Pagine di errore personalizzate** — 403 e 404 servite dalla cartella `/errore/`
 - **Interfaccia responsive** compatibile con desktop e mobile
 - **Nessun database** — lavora direttamente sul filesystem
 
@@ -37,7 +40,8 @@
 
 1. Scarica `index.php` e `.htaccess`
 2. Caricali **entrambi** nella stessa cartella del server che vuoi esporre
-3. Apri il browser e visita quella cartella
+3. (Facoltativo) Carica le pagine `403.html` e `404.html` nella sottocartella `/errore/`
+4. Apri il browser e visita quella cartella
 
 > ⚠️ **Importante:** caricare sempre `.htaccess` insieme a `index.php`. Senza di esso, i file nella cartella sono accessibili direttamente tramite URL anche senza password.
 
@@ -65,6 +69,11 @@ $EXCLUDED_FOLDERS = ['NomeCartellaNascosta'];
 $ALLOWED_EXTENSIONS  = ['pdf', 'jpg', 'docx', 'xlsx', 'html'];
 $INLINE_EXTENSIONS   = ['pdf', 'html', 'jpg', 'jpeg', 'png'];
 $DOWNLOAD_EXTENSIONS = ['docx', 'xlsx', 'doc', 'xls'];
+
+// ── 📤 UPLOAD ────────────────────────────────────────────────────
+$UPLOAD_ENABLED    = true;
+$UPLOAD_MAX_SIZE   = 10;       // dimensione massima in MB
+$UPLOAD_EXTENSIONS = ['pdf', 'jpg', 'docx', 'xlsx'];
 ```
 
 ### Opzioni principali
@@ -79,6 +88,9 @@ $DOWNLOAD_EXTENSIONS = ['docx', 'xlsx', 'doc', 'xls'];
 | `$ALLOWED_EXTENSIONS` | array | Estensioni visibili e scaricabili |
 | `$INLINE_EXTENSIONS` | array | Estensioni aperte nel browser |
 | `$DOWNLOAD_EXTENSIONS` | array | Estensioni scaricate direttamente |
+| `$UPLOAD_ENABLED` | `true` / `false` | Attiva o disattiva la funzione di upload |
+| `$UPLOAD_MAX_SIZE` | numero intero | Dimensione massima file in MB |
+| `$UPLOAD_EXTENSIONS` | array | Estensioni accettate in upload |
 
 ---
 
@@ -94,11 +106,37 @@ I prefissi vengono rimossi dal nome visualizzato all'utente.
 
 ---
 
+## 🖱️ Drag-and-drop
+
+I file possono essere **spostati tra cartelle** con un semplice trascinamento:
+
+1. Trascina un file sopra il nome di una cartella
+2. La cartella si evidenzia come destinazione
+3. Rilascia per spostare il file
+
+> ℹ️ La funzione è disponibile solo per gli utenti autenticati (o quando il login è disabilitato). Il trascinamento funziona correttamente anche su file che contengono link interni.
+
+---
+
+## 📁 Gestione cartelle
+
+Dall'interfaccia è possibile, senza uscire dal browser:
+
+| Azione | Descrizione |
+|---|---|
+| **Nuova cartella** | Crea una sottocartella nella directory corrente |
+| **Rinomina** | Modifica il nome di una cartella esistente |
+| **Elimina** | Rimuove una cartella (solo se vuota) |
+
+Tutte le azioni usano una finestra modale condivisa con le azioni sui file, per un'interfaccia coerente.
+
+---
+
 ## 🔒 Sicurezza
 
 Il tool adotta **due livelli di protezione** che lavorano insieme:
 
-1. **`.htaccess`** (lato server Apache) — blocca l'accesso diretto a qualsiasi file tramite URL. Anche chi conosce il percorso esatto del file non riesce a scaricarlo senza passare da `index.php`.
+1. **`.htaccess`** (lato server Apache) — instrada tutte le richieste attraverso `index.php`, bloccando l'accesso diretto a qualsiasi file tramite URL. Anche chi conosce il percorso esatto del file non riesce a scaricarlo senza passare da `index.php`.
 2. **`index.php`** (lato PHP) — verifica l'autenticazione prima di servire qualsiasi file tramite il parametro `?file=`. Blocca anche eventuali tentativi di directory traversal.
 
 Ulteriori dettagli:
@@ -110,12 +148,27 @@ Ulteriori dettagli:
 
 ---
 
+## 🗂️ Pagine di errore personalizzate
+
+Il tool supporta pagine di errore personalizzate per i codici **403** e **404**.  
+Basta creare una sottocartella `/errore/` con i file:
+
+```
+errore/
+├── 403.html
+└── 404.html
+```
+
+Il file `.htaccess` incluso reindirizza automaticamente gli errori a queste pagine.
+
+---
+
 ## 📋 Requisiti
 
 - PHP **7.4** o superiore
 - Server Apache con `mod_rewrite` abilitato e `AllowOverride All`
 - Estensione `session` abilitata (standard in quasi tutti i server)
-- Accesso in lettura alla directory da servire
+- Accesso in lettura (e scrittura, per upload/gestione cartelle) alla directory da servire
 
 ---
 
@@ -123,8 +176,11 @@ Ulteriori dettagli:
 
 ```
 public_html/documenti/
-├── index.php           ← gestore principale
-├── .htaccess           ← blocca accesso diretto ai file ⚠️ necessario
+├── index.php                   ← gestore principale
+├── .htaccess                   ← blocca accesso diretto ai file ⚠️ necessario
+├── errore/
+│   ├── 403.html                ← pagina errore accesso negato (facoltativa)
+│   └── 404.html                ← pagina errore non trovato (facoltativa)
 ├── Circolare_01.pdf
 ├── Avvisi/
 │   ├── Avviso_febbraio.pdf
@@ -132,6 +188,27 @@ public_html/documenti/
 └── Modulistica/
     └── Modulo_iscrizione.docx
 ```
+
+---
+
+## 📋 Changelog
+
+### v6.2
+- Aggiunta azione **rinomina cartella** con modale condivisa
+- Aggiunta azione **elimina cartella** (se vuota)
+- Fix bug drag-and-drop: gli elementi `<a>` figli non intercettano più l'evento `dragstart`
+
+### v6.1
+- Upload diretto nella **cartella root**
+- **Creazione cartelle** dall'interfaccia senza FTP
+- **Drag-and-drop** per spostare file tra cartelle
+- Pagine di errore personalizzate **403/404** in `/errore/`
+- Fix tipo MIME per file `.mid`/`.midi`
+- Routing completo tramite `.htaccess` — tutti i percorsi passano per `index.php`
+
+### v6.0
+- Prima versione consolidata in file unico (`index.php`)
+- Navigazione ricorsiva, protezione password, apertura inline/download
 
 ---
 
