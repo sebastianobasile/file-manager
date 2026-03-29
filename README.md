@@ -4,7 +4,7 @@
 > Ideale per pubblicare documenti su siti scolastici o intranet.
 
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4?logo=php&logoColor=white)
-![Licenza](https://img.shields.io/badge/Licenza-MIT-green)
+![Licenza](https://img.shields.io/badge/Licenza-CC%20BY--NC--SA%204.0-green)
 ![Versione](https://img.shields.io/badge/Versione-6.3-blue)
 ![Scuole italiane](https://img.shields.io/badge/Destinatari-Scuole%20italiane-red)
 
