@@ -5,7 +5,7 @@
 
 ![PHP](https://img.shields.io/badge/PHP-7.4%2B-777BB4?logo=php&logoColor=white)
 ![Licenza](https://img.shields.io/badge/Licenza-MIT-green)
-![Versione](https://img.shields.io/badge/Versione-6.2-blue)
+![Versione](https://img.shields.io/badge/Versione-6.3-blue)
 ![Scuole italiane](https://img.shields.io/badge/Destinatari-Scuole%20italiane-red)
 
 ---
@@ -26,8 +26,11 @@
 - **Apertura file inline o download** configurabile per tipo di estensione
 - **📤 Upload** nella cartella corrente o direttamente nella root, con controllo su dimensione ed estensioni
 - **📁 Gestione cartelle completa** — crea, rinomina ed elimina cartelle direttamente dall'interfaccia
-- **🖱️ Drag-and-drop** — sposta i file tra le cartelle con un semplice trascinamento
-- **File e cartelle nascosti** definibili con semplici array
+- **📦 Sposta file** tra cartelle tramite modale dedicata, affidabile su tutti i browser e dispositivi
+- **📋 Copia file** tra cartelle, con rinomina automatica anti-sovrascrittura
+- **🖨️ Cartella pubblica** (`stampa`) — sezione accessibile senza login tramite link diretto, ideale per condividere documenti con genitori e studenti
+- **⏱️ Scadenza per-file** — ogni file nella cartella pubblica può avere un timer di scadenza personalizzato; i file scaduti vengono eliminati automaticamente
+- **🔐 Password per-file** — protezione individuale con hash bcrypt sui singoli file della cartella pubblica, con modale di sblocco integrata
 - **File riservati** segnalati con icona 🔒 tramite prefisso nel nome
 - **Apertura in nuova scheda** controllabile globalmente o per singolo file
 - **Pagine di errore personalizzate** — 403 e 404 servite dalla cartella `/errore/`
@@ -41,7 +44,8 @@
 1. Scarica `index.php` e `.htaccess`
 2. Caricali **entrambi** nella stessa cartella del server che vuoi esporre
 3. (Facoltativo) Carica le pagine `403.html` e `404.html` nella sottocartella `/errore/`
-4. Apri il browser e visita quella cartella
+4. (Facoltativo) Crea manualmente la cartella `stampa/` per la sezione pubblica
+5. Apri il browser e visita quella cartella
 
 > ⚠️ **Importante:** caricare sempre `.htaccess` insieme a `index.php`. Senza di esso, i file nella cartella sono accessibili direttamente tramite URL anche senza password.
 
@@ -71,9 +75,14 @@ $INLINE_EXTENSIONS   = ['pdf', 'html', 'jpg', 'jpeg', 'png'];
 $DOWNLOAD_EXTENSIONS = ['docx', 'xlsx', 'doc', 'xls'];
 
 // ── 📤 UPLOAD ────────────────────────────────────────────────────
-$UPLOAD_ENABLED    = true;
-$UPLOAD_MAX_SIZE   = 10;       // dimensione massima in MB
-$UPLOAD_EXTENSIONS = ['pdf', 'jpg', 'docx', 'xlsx'];
+$UPLOAD_ENABLED     = true;
+$UPLOAD_FOLDER      = '';      // '' = cartella radice | 'upload' = sottocartella
+$UPLOAD_MAX_SIZE_MB = 10;
+$UPLOAD_ALLOWED_EXT = ['pdf', 'jpg', 'docx', 'xlsx'];
+
+// ── 🖨️ CARTELLA PUBBLICA ────────────────────────────────────────
+$PUBLIC_FOLDER              = 'stampa'; // Cartella accessibile senza login
+$PUBLIC_FOLDER_EXPIRE_HOURS = 24;       // Scadenza default in ore (0 = mai)
 ```
 
 ### Opzioni principali
@@ -89,8 +98,10 @@ $UPLOAD_EXTENSIONS = ['pdf', 'jpg', 'docx', 'xlsx'];
 | `$INLINE_EXTENSIONS` | array | Estensioni aperte nel browser |
 | `$DOWNLOAD_EXTENSIONS` | array | Estensioni scaricate direttamente |
 | `$UPLOAD_ENABLED` | `true` / `false` | Attiva o disattiva la funzione di upload |
-| `$UPLOAD_MAX_SIZE` | numero intero | Dimensione massima file in MB |
-| `$UPLOAD_EXTENSIONS` | array | Estensioni accettate in upload |
+| `$UPLOAD_MAX_SIZE_MB` | numero intero | Dimensione massima file in MB |
+| `$UPLOAD_ALLOWED_EXT` | array | Estensioni accettate in upload |
+| `$PUBLIC_FOLDER` | testo | Nome della cartella pubblica (default: `stampa`) |
+| `$PUBLIC_FOLDER_EXPIRE_HOURS` | numero intero | Scadenza automatica di default in ore (`0` = mai) |
 
 ---
 
@@ -106,15 +117,18 @@ I prefissi vengono rimossi dal nome visualizzato all'utente.
 
 ---
 
-## 🖱️ Drag-and-drop
+## 📦 Sposta e copia file
 
-I file possono essere **spostati tra cartelle** con un semplice trascinamento:
+I file possono essere **spostati o copiati tra cartelle** tramite modale dedicata:
 
-1. Trascina un file sopra il nome di una cartella
-2. La cartella si evidenzia come destinazione
-3. Rilascia per spostare il file
+1. Clicca sull'icona di sposta (📦) o copia (📋) accanto al file
+2. Si apre una modale con l'elenco delle cartelle disponibili
+3. Seleziona la destinazione e conferma
 
-> ℹ️ La funzione è disponibile solo per gli utenti autenticati (o quando il login è disabilitato). Il trascinamento funziona correttamente anche su file che contengono link interni.
+Se il file di destinazione esiste già, la copia viene rinominata automaticamente con un suffisso timestamp (`_copia_AAAAMMGG_HHMMSS`). Lo spostamento invece segnala il conflitto senza sovrascrivere.
+
+> ℹ️ Quando un file viene **spostato nella cartella pubblica**, gli viene assegnata automaticamente la scadenza default configurata in `$PUBLIC_FOLDER_EXPIRE_HOURS`.  
+> Quando un file **esce dalla cartella pubblica**, scadenza e password vengono rimosse automaticamente.
 
 ---
 
@@ -128,7 +142,25 @@ Dall'interfaccia è possibile, senza uscire dal browser:
 | **Rinomina** | Modifica il nome di una cartella esistente |
 | **Elimina** | Rimuove una cartella (solo se vuota) |
 
-Tutte le azioni usano una finestra modale condivisa con le azioni sui file, per un'interfaccia coerente.
+---
+
+## 🖨️ Cartella pubblica
+
+La cartella pubblica (default: `stampa/`) è accessibile da chiunque abbia il link **senza bisogno di password**, ideale per condividere circolari o documenti con genitori e studenti.
+
+**Come attivarla:**
+1. Crea manualmente la cartella `stampa/` sul server (via FTP o cPanel)
+2. Accedila tramite `https://tuosito.it/documenti/?stampa`
+
+**Funzionalità disponibili per i file nella cartella pubblica:**
+
+| Funzione | Descrizione |
+|---|---|
+| **⏱️ Scadenza** | Imposta data e ora di scadenza; scaduto, il file viene eliminato automaticamente |
+| **🔐 Password** | Proteggi il singolo file con una password (hash bcrypt); l'utente la inserisce in una modale |
+| **Pulsanti rapidi** | Scadenza preimpostata in 30 min / 1 h / 3 h / 24 h con un click |
+
+> ⚠️ Se `$LOGIN_REQUIRED = false` (sito completamente pubblico), imposta `$UPLOAD_ENABLED = false` per non esporre la funzione di upload.
 
 ---
 
@@ -142,9 +174,10 @@ Il tool adotta **due livelli di protezione** che lavorano insieme:
 Ulteriori dettagli:
 - Solo le estensioni definite in `$ALLOWED_EXTENSIONS` vengono servite
 - La sessione scade dopo **1 ora** di inattività
-- I file di sistema (`index.php`, `.htaccess`, ecc.) sono esclusi anche se richiesti via URL
+- Le password per-file sono salvate come hash **bcrypt** in `.passwords.json` (mai in chiaro)
+- I file di sistema (`index.php`, `.htaccess`, `.expires.json`, `.passwords.json`, ecc.) sono esclusi anche se richiesti via URL
 
-> ⚠️ La password è memorizzata **in chiaro** nel file. Per ambienti ad alta sicurezza si consiglia l'autenticazione a livello di server web.
+> ⚠️ La password principale (`$PASSWORD`) è memorizzata **in chiaro** nel file. Per ambienti ad alta sicurezza si consiglia l'autenticazione a livello di server web.
 
 ---
 
@@ -181,6 +214,9 @@ public_html/documenti/
 ├── errore/
 │   ├── 403.html                ← pagina errore accesso negato (facoltativa)
 │   └── 404.html                ← pagina errore non trovato (facoltativa)
+├── stampa/                     ← cartella pubblica (accesso senza login)
+│   ├── .expires.json           ← scadenze per-file (generato automaticamente)
+│   └── .passwords.json         ← hash password per-file (generato automaticamente)
 ├── Circolare_01.pdf
 ├── Avvisi/
 │   ├── Avviso_febbraio.pdf
@@ -193,10 +229,18 @@ public_html/documenti/
 
 ## 📋 Changelog
 
+### v6.3
+- **Spostamento file via modale** — rimosso il drag-and-drop (poco affidabile su mobile e alcuni browser) in favore di una modale dedicata, più precisa e accessibile
+- **Copia file** tra cartelle, con rinomina automatica anti-sovrascrittura (`_copia_AAAAMMGG_HHMMSS`)
+- **Cartella pubblica** (`stampa/`) — accesso senza login tramite `?stampa`, ideale per condivisione con genitori e studenti
+- **Scadenza per-file** — timer personalizzabile con pulsanti rapidi (30 min / 1 h / 3 h / 24 h) e auto-pulizia dei file scaduti
+- **Password per-file** — protezione individuale con hash bcrypt, modale di sblocco integrata nella pagina pubblica
+- Gestione automatica di scadenza e password all'ingresso/uscita dalla cartella pubblica
+
 ### v6.2
 - Aggiunta azione **rinomina cartella** con modale condivisa
-- Aggiunta azione **elimina cartella** (se vuota)
-- Fix bug drag-and-drop: gli elementi `<a>` figli non intercettano più l'evento `dragstart`
+- Aggiunta azione **elimina cartella** (solo se vuota)
+- Fix bug drag-and-drop: gli elementi `<a>` figli non intercettavano più l'evento `dragstart`
 
 ### v6.1
 - Upload diretto nella **cartella root**
