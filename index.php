@@ -21,7 +21,7 @@ $PASSWORD       = "Cambiami!";   // Password di accesso (testo in chiaro)
 $UPLOAD_ENABLED     = true;
 $UPLOAD_FOLDER      = '';  // '' = cartella radice | 'upload' = sottocartella
 $UPLOAD_MAX_SIZE_MB = 20;
-$UPLOAD_ALLOWED_EXT = ['pdf', 'jpg', 'jpeg', 'png', 'docx', 'xlsx', 'doc', 'xls', 'zip', 'json', 'af'];
+$UPLOAD_ALLOWED_EXT = ['pdf', 'jpg', 'jpeg', 'png', 'docx', 'xlsx', 'doc', 'xls', 'zip', 'json', 'af', 'php'];
 
 // ── 🪟 APERTURA FILE ─────────────────────────────────────────────
 $OPEN_IN_NEW_TAB = true;
@@ -32,14 +32,14 @@ $EXCLUDED_FOLDERS = ['Ammucciata', 'Test'];
 
 // ── 📄 ESTENSIONI ────────────────────────────────────────────────
 $ALLOWED_EXTENSIONS   = ['php', 'pdf', 'jpg', 'jpeg', 'png', 'docx', 'xlsx', 'doc', 'xls', 'html', 'mid', 'zip', 'json', 'af'];
-$INLINE_EXTENSIONS    = ['pdf', 'html', 'jpg', 'jpeg', 'png', 'mid'];
+$INLINE_EXTENSIONS    = ['pdf', 'html', 'jpg', 'jpeg', 'png', 'mid', 'php'];
 $DOWNLOAD_EXTENSIONS  = ['docx', 'xlsx', 'doc', 'xls', 'zip', 'json'];
 
 // ── 🏷️ FILE RISERVATI (mostrano il lucchetto 🔒) ─────────────────
 $RESERVED_PREFIXES = ['RISERVATO_', '🔐', 'PRIV_'];
 $NEW_TAB_SUFFIX    = '_NUOVO';
 
-// ── 🖨️ CARTELLA PUBBLICA (stampa senza login) ─────────────────────
+// ── 🖨️ CARTELLA PUBBLICA (accesso senza login) ────────────────────
 // Crea manualmente questa cartella sul server (es. via FTP/cPanel)
 // Chiunque abbia il link può vedere e aprire i file, senza password
 $PUBLIC_FOLDER              = 'stampa'; // Nome cartella pubblica (usa minuscolo: Linux è case-sensitive)
@@ -130,16 +130,18 @@ function cleanPublicFolder($folder, $default_hours) {
     foreach (scandir($folder) as $f) {
         if ($f === '.' || $f === '..') continue;
         $path = $folder . '/' . $f;
+        // Ricorri nelle sottocartelle
+        if (is_dir($path)) {
+            cleanPublicFolder($path, $default_hours);
+            continue;
+        }
         if (!is_file($path)) continue;
         if (isset($expires[$f])) {
-            // scadenza personalizzata (0 = mai)
             if ($expires[$f] > 0 && $now >= $expires[$f]) {
                 @unlink($path);
                 unset($expires[$f]);
             }
         }
-        // NOTA: file senza entry nel JSON non vengono mai eliminati automaticamente.
-        // La scadenza deve essere impostata esplicitamente (al caricamento o allo spostamento).
     }
     writeExpires($folder, $expires);
 }
@@ -211,8 +213,9 @@ $errore_login = '';
 
 if ($LOGIN_REQUIRED && isset($_POST['password'])) {
     if ($_POST['password'] === $PASSWORD) {
-        $_SESSION[$cookie_name] = true;
-        setcookie($cookie_name, "1", time() + 3600, "/");
+        $session_token = bin2hex(random_bytes(16));
+        $_SESSION[$cookie_name] = $session_token;
+        setcookie($cookie_name, $session_token, time() + 3600, "/", "", false, true);
         session_regenerate_id(true);
         $redirect_url = 'index.php' . (isset($_GET['folder']) ? '?folder=' . urlencode($_GET['folder']) : '');
         header('Location: ' . $redirect_url);
@@ -230,9 +233,11 @@ if (isset($_GET['logout'])) {
     exit;
 }
 
+$session_token = $_SESSION[$cookie_name] ?? null;
+$cookie_token  = $_COOKIE[$cookie_name] ?? null;
+
 $is_authenticated = (!$LOGIN_REQUIRED)
-    || (isset($_SESSION[$cookie_name]) && $_SESSION[$cookie_name] === true)
-    || isset($_COOKIE[$cookie_name]);
+    || ($session_token !== null && $session_token !== true && $cookie_token === $session_token);
 
 // ── Auto-pulizia cartella pubblica ─────────────────────────────────
 // Risolvi il nome reale della cartella pubblica (Linux è case-sensitive)
@@ -247,7 +252,7 @@ if (!is_dir($PUBLIC_FOLDER) && is_dir('.')) {
 cleanPublicFolder($PUBLIC_FOLDER, $PUBLIC_FOLDER_EXPIRE_HOURS);
 
 // ================================================================
-// 1a. ROTTA PUBBLICA (?stampa) - nessun login richiesto
+// 1a. ROTTA PUBBLICA (?$PUBLIC_FOLDER) - nessun login richiesto
 // ================================================================
 
 // ================================================================
@@ -257,11 +262,19 @@ cleanPublicFolder($PUBLIC_FOLDER, $PUBLIC_FOLDER_EXPIRE_HOURS);
 if (isset($_POST['pub_password_check'])) {
     $pw_file  = basename(str_replace(['..', '\\', '/'], '', $_POST['pub_filename'] ?? ''));
     $pw_plain = $_POST['pub_password'] ?? '';
-    $path     = $PUBLIC_FOLDER . '/' . $pw_file;
+    $pw_sub   = str_replace(['..','\\','/'], '', trim($_POST['pub_sub'] ?? ''));
+    $pw_folder= $PUBLIC_FOLDER . ($pw_sub !== '' ? '/' . $pw_sub : '');
+    $path     = $pw_folder . '/' . $pw_file;
 
-    if ($pw_file && file_exists($path) && verifyFilePassword($PUBLIC_FOLDER, $pw_file, $pw_plain)) {
-        // Password corretta: servi il file direttamente
+    if ($pw_file && file_exists($path) && verifyFilePassword($pw_folder, $pw_file, $pw_plain)) {
         $ext  = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+
+        // ── PHP e HTML: include interno (evita il blocco .htaccess sui file diretti) ──
+        if (in_array($ext, ['php', 'html'])) {
+            include $path;
+            exit;
+        }
+
         $mime_map = [
             'pdf'  => 'application/pdf',
             'jpg'  => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png' => 'image/png',
@@ -280,49 +293,73 @@ if (isset($_POST['pub_password_check'])) {
         readfile($path);
         exit;
     } else {
-        // Password errata: torna alla pagina pubblica con errore
-        header('Location: index.php?stampa&pw_error=' . urlencode($pw_file));
+        $redir = 'index.php?' . $PUBLIC_FOLDER . ($pw_sub !== '' ? '&sub=' . urlencode($pw_sub) : '') . '&pw_error=' . urlencode($pw_file);
+        header('Location: ' . $redir);
         exit;
     }
 }
 
-if (isset($_GET['stampa'])) {
-    $pub_dir      = $PUBLIC_FOLDER;
-    $pub_files    = [];
-    $pub_expires  = is_dir($pub_dir) ? readExpires($pub_dir)   : [];
-    $pub_passwords= is_dir($pub_dir) ? readPasswords($pub_dir) : [];
+if (isset($_GET[$PUBLIC_FOLDER])) {
+    // ── Sottocartella corrente (sanificata, solo un livello sotto $PUBLIC_FOLDER) ──
+    $pub_sub = '';
+    if (isset($_GET['sub'])) {
+        $raw_sub = str_replace(['..','\\','/'], '', trim($_GET['sub']));
+        if ($raw_sub !== '' && is_dir($PUBLIC_FOLDER . '/' . $raw_sub)) {
+            $pub_sub = $raw_sub;
+        }
+    }
+    $pub_dir       = $PUBLIC_FOLDER . ($pub_sub !== '' ? '/' . $pub_sub : '');
+    $pub_files     = [];
+    $pub_subfolders= [];
+    $pub_expires   = is_dir($pub_dir) ? readExpires($pub_dir)   : [];
+    $pub_passwords = is_dir($pub_dir) ? readPasswords($pub_dir) : [];
     $pw_error_file = isset($_GET['pw_error'])  ? basename(str_replace(['..','\\','/'],'',$_GET['pw_error']))  : '';
     $pw_prompt_file= isset($_GET['pw_prompt']) ? basename(str_replace(['..','\\','/'],'',$_GET['pw_prompt'])) : '';
+
     if (is_dir($pub_dir)) {
         foreach (scandir($pub_dir) as $item) {
             if ($item === '.' || $item === '..') continue;
             $full = $pub_dir . '/' . $item;
+            // Cartelle (solo se siamo nella root di stampa, un livello)
+            if (is_dir($full) && $pub_sub === '') {
+                $pub_subfolders[] = $item;
+                continue;
+            }
             if (!is_file($full)) continue;
             $ext = strtolower(pathinfo($item, PATHINFO_EXTENSION));
             if ($item === '.expires.json' || $item === '.passwords.json') continue;
             if (in_array($ext, $ALLOWED_EXTENSIONS)) {
                 $exp_ts = isset($pub_expires[$item]) ? (int)$pub_expires[$item] : 0;
-                // Salta file scaduti (verranno eliminati al prossimo cleanup)
                 if ($exp_ts > 0 && time() >= $exp_ts) continue;
-                $pub_files[] = ['name'=>$item, 'ext'=>$ext, 'mtime'=>filemtime($full), 'expire'=>$exp_ts, 'locked'=>isset($pub_passwords[$item])];
+                $pub_files[] = ['name'=>$item, 'ext'=>$ext, 'mtime'=>filemtime($full),
+                                'expire'=>$exp_ts, 'locked'=>isset($pub_passwords[$item])];
             }
         }
     }
+    sort($pub_subfolders);
     usort($pub_files, fn($a,$b) => $b['mtime'] - $a['mtime']);
-    $expire_label = 'Ogni file ha una scadenza personalizzata impostata dall\'amministratore.';
+
+    // URL base per link e form nella pagina pubblica
+    $_scheme  = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+    $_baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
+    $pub_base_url = $_scheme . '://' . $_SERVER['HTTP_HOST'] . $_baseDir;
     ?>
 <!DOCTYPE html>
 <html lang="it">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🖨️ Stampa – <?= htmlspecialchars($MAIN_TITLE) ?></title>
+    <title>📁 <?= $pub_sub ? htmlspecialchars($pub_sub) . ' – ' : '' ?><?= htmlspecialchars(strtoupper($PUBLIC_FOLDER)) ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:linear-gradient(135deg,#6a11cb 0%,#2575fc 100%); min-height:100vh; display:flex; justify-content:center; align-items:center; padding:10px; }
         .container { background:rgba(255,255,255,0.97); border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,0.2); padding:24px 18px; max-width:600px; width:100%; text-align:center; }
         h1 { color:#2c3e50; font-size:20px; margin-bottom:4px; }
-        .subtitle { font-size:13px; color:#6c757d; margin-bottom:16px; }
+        .subtitle { font-size:13px; color:#6c757d; margin-bottom:12px; }
+        .breadcrumb { text-align:left; font-size:13px; background:#f8f9fa; border-radius:6px; padding:8px 12px; margin-bottom:14px; }
+        .breadcrumb a { color:#6a11cb; font-weight:600; text-decoration:none; }
+        .breadcrumb a:hover { text-decoration:underline; }
+        .breadcrumb span { color:#6c757d; margin:0 4px; }
         .info-box { background:#fff8e1; border-left:4px solid #ffc107; padding:10px 14px; margin-bottom:16px; border-radius:6px; text-align:left; font-size:13px; color:#555; }
         ul { list-style:none; padding:0; }
         li { margin-bottom:8px; }
@@ -331,13 +368,15 @@ if (isset($_GET['stampa'])) {
         button.pub-link { width:100%; border:1px solid #ddd; border-radius:8px; background:#f8f9fa; padding:13px 16px; font-weight:600; font-size:15px; text-align:left; transition:all .25s; cursor:pointer; color:#2c3e50; }
         button.pub-link.locked { background:#fff8e1; border-color:#ffc107; }
         button.pub-link.locked:hover { background:#6a11cb; border-color:#6a11cb; color:#fff; }
+        a.pub-link.folder { background:#e7f3ff; border-color:#2575fc; color:#2575fc; }
+        a.pub-link.folder:hover { background:#6a11cb; border-color:#6a11cb; color:#fff; }
         .meta { font-size:11px; color:#999; display:block; margin-top:2px; font-weight:400; }
-        .empty { color:#999; font-style:italic; padding:30px 0; }
+        .empty { color:#999; font-style:italic; padding:20px 0; }
         .lock-icon { color:#ffc107; margin-right:6px; }
         button.pub-link:hover .lock-icon, button.pub-link:hover .icon { color:#fff !important; }
         a.pub-link:hover .icon { color:#fff !important; }
         .icon { margin-right:8px; }
-        .icon.pdf { color:#cc0000; } .icon.img { color:#3b5998; } .icon.doc { color:#28a745; } .icon.xls { color:#1d6f42; }
+        .icon.pdf { color:#cc0000; } .icon.img { color:#3b5998; } .icon.doc { color:#28a745; } .icon.xls { color:#1d6f42; } .icon.folder { color:#2575fc; }
         footer { margin-top:18px; font-size:12px; color:#aaa; }
         /* Password modal */
         .pw-modal-overlay { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.55); z-index:9999; justify-content:center; align-items:center; }
@@ -357,20 +396,55 @@ if (isset($_GET['stampa'])) {
 </head>
 <body>
 <div class="container">
-    <h1><i class="fas fa-print" style="color:#6a11cb;margin-right:6px;"></i> Cartella Stampa</h1>
-    <p class="subtitle">Accesso pubblico temporaneo · i file protetti richiedono una password 🔐</p>
-    <div class="info-box">
-        <i class="fas fa-clock" style="color:#ffc107;margin-right:5px;"></i> <?= htmlspecialchars($expire_label) ?>
+    <h1><i class="fas fa-folder-open" style="color:#6a11cb;margin-right:6px;"></i>
+        <?= $pub_sub ? htmlspecialchars($pub_sub) : htmlspecialchars(strtoupper($PUBLIC_FOLDER)) ?>
+    </h1>
+    <p class="subtitle">Accesso pubblico · i file protetti richiedono una password 🔐</p>
+
+    <?php if ($pub_sub !== ''): ?>
+    <div class="breadcrumb">
+        <a href="index.php?<?= $PUBLIC_FOLDER ?>"><i class="fas fa-folder-open"></i> <?= htmlspecialchars(strtoupper($PUBLIC_FOLDER)) ?></a>
+        <span>/</span>
+        <strong><?= htmlspecialchars($pub_sub) ?></strong>
     </div>
-    <?php if (empty($pub_files)): ?>
+    <?php endif; ?>
+
+    <?php if (empty($pub_files) && empty($pub_subfolders)): ?>
         <p class="empty"><i class="fas fa-inbox"></i><br>Nessun file disponibile al momento.</p>
     <?php else: ?>
     <ul>
+        <?php foreach ($pub_subfolders as $sf):
+            $sf_label = htmlspecialchars(ucfirst(str_replace(['_','-'],' ',$sf)));
+            $sf_url   = 'index.php?' . $PUBLIC_FOLDER . '&sub=' . urlencode($sf);
+            // Conta file validi nella sottocartella
+            $sf_dir  = $PUBLIC_FOLDER . '/' . $sf;
+            $sf_exp  = readExpires($sf_dir);
+            $sf_count = 0;
+            foreach (scandir($sf_dir) as $sfi) {
+                if ($sfi === '.' || $sfi === '..') continue;
+                $sfp = $sf_dir . '/' . $sfi;
+                if (!is_file($sfp)) continue;
+                $sfext = strtolower(pathinfo($sfi, PATHINFO_EXTENSION));
+                if ($sfi === '.expires.json' || $sfi === '.passwords.json') continue;
+                if (!in_array($sfext, $ALLOWED_EXTENSIONS)) continue;
+                $sf_exp_ts = isset($sf_exp[$sfi]) ? (int)$sf_exp[$sfi] : 0;
+                if ($sf_exp_ts > 0 && time() >= $sf_exp_ts) continue;
+                $sf_count++;
+            }
+        ?>
+        <li>
+            <a href="<?= htmlspecialchars($sf_url) ?>" class="pub-link folder">
+                <span class="icon folder"><i class="fas fa-folder-open"></i></span><?= $sf_label ?>
+                <span class="meta"><?= $sf_count ?> file disponibil<?= $sf_count === 1 ? 'e' : 'i' ?></span>
+            </a>
+        </li>
+        <?php endforeach; ?>
+
         <?php foreach ($pub_files as $pf):
             $fname  = $pf['name'];
             $ext    = $pf['ext'];
             $locked = !empty($pf['locked']);
-            $link   = 'index.php?file=' . urlencode($PUBLIC_FOLDER . '/' . $fname);
+            $link   = 'index.php?file=' . urlencode($pub_dir . '/' . $fname);
             $disp   = htmlspecialchars(pathinfo($fname, PATHINFO_FILENAME));
             $age    = round((time() - $pf['mtime']) / 60);
             $age_label = $age < 60 ? $age . ' min fa' : round($age/60) . ' ore fa';
@@ -389,9 +463,6 @@ if (isset($_GET['stampa'])) {
                 <i class="fas fa-lock lock-icon"></i><span class="icon <?= $iclass ?>"><i class="fas <?= $icon ?>"></i></span><?= $disp ?>
                 <span class="meta" style="color:<?= $rem_color ?>">🔐 Protetto da password · <i class="fas fa-clock"></i> <?= $rem_label ?></span>
             </button>
-            <?php if ($pw_err): ?>
-            <?php /* errore mostrato dentro la modale */ ?>
-            <?php endif; ?>
             <?php else: ?>
             <a href="<?= htmlspecialchars($link) ?>" class="pub-link" target="_blank" rel="noopener">
                 <span class="icon <?= $iclass ?>"><i class="fas <?= $icon ?>"></i></span><?= $disp ?>
@@ -410,8 +481,9 @@ if (isset($_GET['stampa'])) {
     <div class="pw-modal-box">
         <h3><i class="fas fa-lock" style="color:#6a11cb;margin-right:6px;"></i> File protetto</h3>
         <p id="pwModalDesc">Inserisci la password per accedere a questo file.</p>
-        <form method="post" action="index.php?stampa" id="pwForm">
+        <form method="post" action="index.php?<?= $PUBLIC_FOLDER ?><?= $pub_sub ? '&sub=' . urlencode($pub_sub) : '' ?>" id="pwForm">
             <input type="hidden" name="pub_password_check" value="1">
+            <input type="hidden" name="pub_sub" value="<?= htmlspecialchars($pub_sub) ?>">
             <input type="hidden" name="pub_filename" id="pwFilename">
             <div class="pw-input-wrap">
                 <input type="password" name="pub_password" id="pwInput" placeholder="Password" autocomplete="off" required>
@@ -461,7 +533,6 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 <?php endif; ?>
 </script>
-
 </body>
 </html>
 <?php exit; }
@@ -519,8 +590,9 @@ if ($UPLOAD_ENABLED && $is_authenticated && isset($_FILES['upload_file'])) {
 
         if (move_uploaded_file($file['tmp_name'], $dest)) {
             $upload_msg = ['success', '✅ File caricato: <strong>' . htmlspecialchars($safe_name) . '</strong>'];
-            // Scadenza per-file (solo cartella pubblica)
-            if ($upload_target === $PUBLIC_FOLDER) {
+            // Scadenza + password (cartella pubblica o sottocartella)
+            $upload_is_pub = ($upload_target === $PUBLIC_FOLDER || strpos($upload_target, $PUBLIC_FOLDER . '/') === 0);
+            if ($upload_is_pub) {
                 $exp_dt = trim($_POST['expire_datetime'] ?? '');
                 if ($exp_dt !== '') {
                     $ts = strtotime($exp_dt);
@@ -528,14 +600,13 @@ if ($UPLOAD_ENABLED && $is_authenticated && isset($_FILES['upload_file'])) {
                 } else {
                     $ts = 0;
                 }
-                setFileExpiry($PUBLIC_FOLDER, $safe_name, $ts);
+                setFileExpiry($upload_target, $safe_name, $ts);
                 $upload_msg[1] .= $ts > 0
                     ? ' · scade: <strong>' . date('d/m/Y H:i', $ts) . '</strong>'
                     : ' · <strong>nessuna scadenza</strong>';
-                // Password opzionale
                 $pw_upload = $_POST['file_password'] ?? '';
                 if ($pw_upload !== '') {
-                    setFilePassword($PUBLIC_FOLDER, $safe_name, $pw_upload);
+                    setFilePassword($upload_target, $safe_name, $pw_upload);
                     $upload_msg[1] .= ' · <strong>🔐 protetto da password</strong>';
                 }
             }
@@ -715,17 +786,19 @@ if ($UPLOAD_ENABLED && $is_authenticated && isset($_POST['action']) && $_POST['a
         $_SESSION['upload_msg'] = ['error', '❌ Esiste già un file con questo nome nella destinazione.'];
     } elseif (rename($from_path, $to_path)) {
         $msg = '📦 File spostato in <strong>' . htmlspecialchars($to_folder ?: 'cartella principale') . '</strong>: <strong>' . htmlspecialchars($filename) . '</strong>';
-        // Se il file arriva nella cartella pubblica, aggiorna mtime e imposta scadenza default
-        if ($to_folder === $PUBLIC_FOLDER) {
-            touch($to_path); // reset mtime a adesso
+        // Se il file arriva in stampa o una sua sottocartella: touch + scadenza default
+        $to_is_pub = ($to_folder === $PUBLIC_FOLDER || strpos($to_folder, $PUBLIC_FOLDER . '/') === 0);
+        if ($to_is_pub) {
+            touch($to_path);
             $default_ts = time() + $PUBLIC_FOLDER_EXPIRE_HOURS * 3600;
-            setFileExpiry($PUBLIC_FOLDER, $filename, $default_ts > time() ? $default_ts : 0);
+            setFileExpiry($to_folder, $filename, $default_ts > time() ? $default_ts : 0);
             $msg .= ' · <strong>⏱️ scadenza: ' . date('d/m/Y H:i', $default_ts) . '</strong> (modificabile con ⏱️)';
         }
-        // Se il file ESCE dalla cartella pubblica, rimuovi scadenza e password
-        if ($from_folder === $PUBLIC_FOLDER) {
-            setFileExpiry($PUBLIC_FOLDER, $filename, 0);   // rimuovi scadenza
-            setFilePassword($PUBLIC_FOLDER, $filename, ''); // rimuovi password
+        // Se il file ESCE da stampa o una sua sottocartella: rimuovi scadenza e password
+        $from_is_pub = ($from_folder === $PUBLIC_FOLDER || strpos($from_folder, $PUBLIC_FOLDER . '/') === 0);
+        if ($from_is_pub) {
+            setFileExpiry($from_folder, $filename, 0);
+            setFilePassword($from_folder, $filename, '');
         }
         $_SESSION['upload_msg'] = ['success', $msg];
     } else {
@@ -768,11 +841,12 @@ if ($UPLOAD_ENABLED && $is_authenticated && isset($_POST['action']) && $_POST['a
         if ($new_name !== $filename) {
             $msg .= ' come <strong>' . htmlspecialchars($new_name) . '</strong>';
         }
-        // Se la copia va nella cartella pubblica: touch + scadenza default 24h
-        if ($to_folder === $PUBLIC_FOLDER) {
+        // Se la copia va in stampa o una sua sottocartella: touch + scadenza default
+        $copy_to_is_pub = ($to_folder === $PUBLIC_FOLDER || strpos($to_folder, $PUBLIC_FOLDER . '/') === 0);
+        if ($copy_to_is_pub) {
             touch($to_path);
             $default_ts = time() + $PUBLIC_FOLDER_EXPIRE_HOURS * 3600;
-            setFileExpiry($PUBLIC_FOLDER, $new_name, $default_ts);
+            setFileExpiry($to_folder, $new_name, $default_ts);
             $msg .= ' · <strong>⏱️ scade: ' . date('d/m/Y H:i', $default_ts) . '</strong> (modificabile con ⏱️)';
         }
         $_SESSION['upload_msg'] = ['success', $msg];
@@ -793,14 +867,14 @@ if ($UPLOAD_ENABLED && $is_authenticated && isset($_POST['action']) && $_POST['a
     $exp_filename = basename(str_replace(['..', '\\', '/'], '', $_POST['filename'] ?? ''));
     $exp_dt       = trim($_POST['expire_datetime'] ?? '');
 
-    if ($exp_filename && $exp_folder === $PUBLIC_FOLDER) {
+    if ($exp_filename && ($exp_folder === $PUBLIC_FOLDER || strpos($exp_folder, $PUBLIC_FOLDER . '/') === 0)) {
         if ($exp_dt !== '') {
             $ts = strtotime($exp_dt);
             if ($ts === false || $ts <= time()) $ts = 0;
         } else {
-            $ts = 0; // "Mai"
+            $ts = 0;
         }
-        setFileExpiry($PUBLIC_FOLDER, $exp_filename, $ts);
+        setFileExpiry($exp_folder, $exp_filename, $ts);   // ← usa $exp_folder
         $label = $ts > 0 ? date('d/m/Y H:i', $ts) : '∞ nessuna scadenza';
         $_SESSION['upload_msg'] = ['success', '⏱️ Scadenza aggiornata per <strong>' . htmlspecialchars($exp_filename) . '</strong>: <strong>' . $label . '</strong>'];
     } else {
@@ -820,8 +894,8 @@ if ($UPLOAD_ENABLED && $is_authenticated && isset($_POST['action']) && $_POST['a
     $pw_filename = basename(str_replace(['..', '\\', '/'], '', $_POST['filename'] ?? ''));
     $pw_plain    = $_POST['file_password'] ?? '';
 
-    if ($pw_filename && $pw_folder === $PUBLIC_FOLDER) {
-        setFilePassword($PUBLIC_FOLDER, $pw_filename, $pw_plain);
+    if ($pw_filename && ($pw_folder === $PUBLIC_FOLDER || strpos($pw_folder, $PUBLIC_FOLDER . '/') === 0)) {
+        setFilePassword($pw_folder, $pw_filename, $pw_plain);   // ← usa $pw_folder
         if ($pw_plain === '') {
             $_SESSION['upload_msg'] = ['success', '🔓 Password rimossa da <strong>' . htmlspecialchars($pw_filename) . '</strong>'];
         } else {
@@ -847,11 +921,14 @@ if (isset($_GET['file'])) {
             header('Location: index.php');
             exit;
         }
-        // Controlla password per file nella cartella pubblica (solo utenti non autenticati)
-        $check_fname = basename($requested_check);
-        if (fileHasPassword($PUBLIC_FOLDER, $check_fname)) {
-            // Reindirizza alla pagina pubblica: mostra la modale password per quel file
-            header('Location: index.php?stampa&pw_prompt=' . urlencode($check_fname));
+        // Determina cartella e nome file (supporta sottocartella)
+        $rel_path    = substr($requested_check, strlen($PUBLIC_FOLDER) + 1); // es. "Sub/file.pdf" o "file.pdf"
+        $check_fname = basename($rel_path);
+        $check_sub   = (strpos($rel_path, '/') !== false) ? dirname($rel_path) : '';
+        $check_dir   = $PUBLIC_FOLDER . ($check_sub !== '' ? '/' . $check_sub : '');
+        if (fileHasPassword($check_dir, $check_fname)) {
+            $redir = 'index.php?' . $PUBLIC_FOLDER . ($check_sub !== '' ? '&sub=' . urlencode($check_sub) : '') . '&pw_prompt=' . urlencode($check_fname);
+            header('Location: ' . $redir);
             exit;
         }
     }
@@ -910,6 +987,28 @@ if (isset($_GET['file'])) {
 // ================================================================
 // 3. FUNZIONI UTILITY
 // ================================================================
+
+/**
+ * Ritorna tutte le cartelle dell'intero albero (ricorsivo), escluse quelle in $excluded.
+ * Ogni elemento: ['label' => 'percorso/leggibile', 'path' => 'percorso/relativo']
+ */
+function getAllFoldersRecursive($base_path, $base_label, $excluded, $max_depth = 6, $depth = 0) {
+    $results = [];
+    if ($depth > $max_depth || !is_dir($base_path)) return $results;
+    $items = @scandir($base_path);
+    if (!$items) return $results;
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') continue;
+        $full = $base_path . '/' . $item;
+        if (!is_dir($full)) continue;
+        if (in_array($item, $excluded)) continue;
+        $rel_path = $base_label !== '' ? $base_label . '/' . $item : $item;
+        $results[] = ['label' => $rel_path, 'path' => $rel_path];
+        $sub = getAllFoldersRecursive($full, $rel_path, $excluded, $max_depth, $depth + 1);
+        foreach ($sub as $s) $results[] = $s;
+    }
+    return $results;
+}
 
 function isReservedFile($filename, $prefixes) {
     foreach ($prefixes as $prefix) {
@@ -1225,15 +1324,23 @@ if ($LOGIN_REQUIRED && !$is_authenticated) { ?>
     // ── Banner cartella pubblica ───────────────────────────────────
     $pub_expires_admin   = [];
     $pub_passwords_admin = [];
-    if ($is_authenticated && $current_folder === $PUBLIC_FOLDER) {
+    // Mostra banner se siamo in stampa o in una sua sottocartella
+    $is_in_pub_tree = ($current_folder === $PUBLIC_FOLDER)
+        || (strpos($current_folder, $PUBLIC_FOLDER . '/') === 0);
+    if ($is_authenticated && $is_in_pub_tree) {
         $_scheme  = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
-        $_baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');  // es. /basile
-        $pub_url  = $_scheme . '://' . $_SERVER['HTTP_HOST'] . $_baseDir . '?stampa';
-        $pub_expires_admin   = readExpires($PUBLIC_FOLDER);
-        $pub_passwords_admin = readPasswords($PUBLIC_FOLDER);
+        $_baseDir = rtrim(dirname($_SERVER['SCRIPT_NAME']), '/');
+        // Sottocartella relativa a PUBLIC_FOLDER
+        $admin_sub = ($current_folder !== $PUBLIC_FOLDER)
+            ? substr($current_folder, strlen($PUBLIC_FOLDER) + 1)
+            : '';
+        $pub_url  = $_scheme . '://' . $_SERVER['HTTP_HOST'] . $_baseDir . '?' . $PUBLIC_FOLDER
+                  . ($admin_sub !== '' ? '&sub=' . urlencode($admin_sub) : '');
+        $pub_expires_admin   = readExpires($current_folder);
+        $pub_passwords_admin = readPasswords($current_folder);
         echo '<div class="pub-folder-banner">'
            . '<i class="fas fa-print" style="color:#ffc107;margin-right:6px;"></i>'
-           . '<strong>Cartella pubblica:</strong> i file qui sono accessibili a chiunque senza password.<br>'
+           . '<strong>Cartella pubblica' . ($admin_sub ? ' / ' . htmlspecialchars($admin_sub) : '') . ':</strong> i file qui sono accessibili a chiunque senza password.<br>'
            . 'Link: <a href="' . htmlspecialchars($pub_url) . '" target="_blank">' . htmlspecialchars($pub_url) . '</a>'
            . ' &nbsp;<button onclick="navigator.clipboard.writeText(\'' . htmlspecialchars($pub_url, ENT_QUOTES) . '\').then(()=>alert(\'Link copiato!\'))" style="font-size:12px;padding:2px 8px;cursor:pointer;border:1px solid #ffc107;border-radius:4px;background:#fff8e1;color:#7a5900;">'
            . '<i class="fas fa-copy"></i> Copia</button>'
@@ -1302,7 +1409,7 @@ if ($LOGIN_REQUIRED && !$is_authenticated) { ?>
         if ($show_actions) {
             $safe_fname      = htmlspecialchars($fname, ENT_QUOTES);
             $safe_cur_folder = htmlspecialchars($current_folder, ENT_QUOTES);
-            $in_pub_folder   = ($current_folder === $PUBLIC_FOLDER);
+            $in_pub_folder   = $is_in_pub_tree;
             $pub_file_url    = '';
             $expiry_html     = '';
             $lock_html       = '';
@@ -1310,7 +1417,7 @@ if ($LOGIN_REQUIRED && !$is_authenticated) { ?>
                 $pub_file_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http')
                               . '://' . $_SERVER['HTTP_HOST']
                               . strtok($_SERVER['REQUEST_URI'], '?')
-                              . '?file=' . rawurlencode($PUBLIC_FOLDER . '/' . $fname);
+                              . '?file=' . rawurlencode($current_folder . '/' . $fname);
                 $exp_ts      = isset($pub_expires_admin[$fname]) ? (int)$pub_expires_admin[$fname] : 0;
                 $rem_str     = formatRemaining($exp_ts);
                 $badge_class = ($exp_ts === 0) ? 'never' : (($exp_ts - time() < 3600) ? 'soon' : 'ok');
@@ -1489,14 +1596,18 @@ if ($LOGIN_REQUIRED && !$is_authenticated) { ?>
 <script>
 // Cartella corrente e lista cartelle esposte a JS
 const _currentFolder = <?= json_encode($current_folder) ?>;
-const _allFolders    = <?= json_encode(array_map(function($f) use ($current_folder) {
-    return ['label' => ucfirst(str_replace(['_','-'],' ',$f)),
-            'path'  => $current_folder ? $current_folder . '/' . $f : $f];
-}, $folders)) ?>;
+const _allFolders    = <?= json_encode(array_map(function($f) {
+    // Format label with spaces for readability, keep indentation hint via path depth
+    $depth = substr_count($f['path'], '/');
+    $indent = str_repeat('  ', $depth);
+    $basename = basename($f['path']);
+    $label = $indent . ucfirst(str_replace(['_','-'],' ',$basename));
+    return ['label' => $label, 'path' => $f['path']];
+}, getAllFoldersRecursive('.', '', $EXCLUDED_FOLDERS))) ?>;
 const _pubStampaUrl  = <?= json_encode(
     ((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http')
     . '://' . $_SERVER['HTTP_HOST']
-    . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '?stampa'
+    . rtrim(dirname($_SERVER['SCRIPT_NAME']), '/') . '?' . $PUBLIC_FOLDER
 ) ?>;
 
 function copyPubLink() {
@@ -1649,14 +1760,17 @@ function openMove(filename, fromFolder) {
     list.innerHTML = '';
 
     // Cartelle disponibili: tutte esclusa la cartella corrente del file
-    const available = _allFolders.filter(f => f.path !== fromFolder);
-
-    // Aggiungi "Cartella principale" se il file non è già lì
     const targets = [];
     if (fromFolder !== '') {
-        targets.push({ label: '📁 Cartella principale', path: '' });
+        targets.push({ label: '🏠 Cartella principale', path: '' });
     }
-    available.forEach(f => targets.push({ label: '📁 ' + f.label, path: f.path }));
+    _allFolders.forEach(f => {
+        if (f.path !== fromFolder) {
+            const depth = (f.path.match(/\//g) || []).length;
+            const icon = depth === 0 ? '📁' : '↳'.repeat(depth) + ' 📂';
+            targets.push({ label: icon + ' ' + f.label.trim(), path: f.path });
+        }
+    });
 
     if (targets.length === 0) {
         list.innerHTML = '<li><span class="no-folders">Nessuna altra cartella disponibile.</span></li>';
@@ -1664,7 +1778,8 @@ function openMove(filename, fromFolder) {
         targets.forEach(t => {
             const li  = document.createElement('li');
             const btn = document.createElement('button');
-            btn.innerHTML = t.label;
+            btn.textContent = t.label;
+            btn.style.paddingLeft = ((t.path.split('/').length - 1) * 12 + 14) + 'px';
             btn.onclick = () => submitMove(t.path, t.label);
             li.appendChild(btn);
             list.appendChild(li);
@@ -1678,7 +1793,8 @@ function closeMove() {
     _moveFromFolder = '';
 }
 function submitMove(toFolder, toLabel) {
-    if (!confirm('Spostare «' + _currentFile + '»\nnella cartella «' + toLabel.replace(/^📁 /,'') + '»?')) return;
+    const cleanLabel = toFolder !== '' ? toFolder : 'Cartella principale';
+    if (!confirm('Spostare «' + _currentFile + '»\nnella cartella «' + cleanLabel + '»?')) return;
     document.getElementById('actionInput').value   = 'move';
     document.getElementById('filenameInput').value = _currentFile;
     document.getElementById('folderInput').value   = _moveFromFolder;
@@ -1698,9 +1814,13 @@ function openCopy(filename, fromFolder) {
     // Tutte le cartelle disponibili (inclusa quella corrente — si può copiare nella stessa)
     const targets = [];
     if (fromFolder !== '') {
-        targets.push({ label: '📁 Cartella principale', path: '' });
+        targets.push({ label: '🏠 Cartella principale', path: '' });
     }
-    _allFolders.forEach(f => targets.push({ label: '📁 ' + f.label, path: f.path }));
+    _allFolders.forEach(f => {
+        const depth = (f.path.match(/\//g) || []).length;
+        const icon = depth === 0 ? '📁' : '↳'.repeat(depth) + ' 📂';
+        targets.push({ label: icon + ' ' + f.label.trim(), path: f.path });
+    });
 
     if (targets.length === 0) {
         list.innerHTML = '<li><span class="no-folders">Nessuna cartella disponibile.</span></li>';
@@ -1708,10 +1828,10 @@ function openCopy(filename, fromFolder) {
         targets.forEach(t => {
             const li  = document.createElement('li');
             const btn = document.createElement('button');
-            btn.innerHTML = t.label
-                + (t.path.toLowerCase().includes('stampa')
-                    ? ' <span style="font-size:11px;background:#ffc107;color:#7a5900;border-radius:4px;padding:1px 5px;margin-left:4px;">🖨️ pubblica</span>'
-                    : '');
+            const isPub = t.path.toLowerCase().includes('<?= addslashes($PUBLIC_FOLDER) ?>');
+            const pubBadge = isPub ? ' <span style="font-size:11px;background:#ffc107;color:#7a5900;border-radius:4px;padding:1px 5px;margin-left:4px;">🖨️ pubblica</span>' : '';
+            btn.innerHTML = t.label + pubBadge;
+            btn.style.paddingLeft = ((t.path.split('/').length - 1) * 12 + 14) + 'px';
             btn.onclick = () => submitCopy(t.path, t.label);
             li.appendChild(btn);
             list.appendChild(li);
@@ -1725,7 +1845,7 @@ function closeMove2() {
     _copyFromFolder = '';
 }
 function submitCopy(toFolder, toLabel) {
-    const dest = toLabel.replace(/^📁 /,'').replace(/ 🖨️.*$/,'').trim();
+    const dest = toFolder !== '' ? toFolder : 'Cartella principale';
     if (!confirm('Copiare «' + _currentFile + '»\nin «' + dest + '»?\nL\'originale rimane al suo posto.')) return;
     document.getElementById('actionInput').value   = 'copy_file';
     document.getElementById('filenameInput').value = _currentFile;
