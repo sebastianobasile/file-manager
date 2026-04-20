@@ -1,7 +1,6 @@
 <?php
 /**
- * FILE MANAGER v6.3 - Sebastiano Basile – superscuola.com – sostegno.t.me
- * Novità v6.3: spostamento file via modale (rimosso drag-and-drop poco affidabile).
+ * FILE MANAGER v6.5 - Sebastiano Basile – superscuola.com – sostegno.t.me
  */
 session_start();
 
