@@ -1,7 +1,10 @@
 <?php
 /**
- * FILE MANAGER v6.5 - Sebastiano Basile – superscuola.com – sostegno.t.me
+ * FILE MANAGER - Sebastiano Basile – superscuola.com – sostegno.t.me
  */
+
+// ── 🔢 VERSIONE ──────────────────────────────────────────────────
+$APP_VERSION = 'v6.5';
 session_start();
 
 // ╔══════════════════════════════════════════════════════════════╗
@@ -12,7 +15,7 @@ session_start();
 
 // ── 🔐 ACCESSO ──────────────────────────────────────────────────
 $LOGIN_REQUIRED = true;       // true = richiede password | false = accesso libero
-$PASSWORD       = "Cambiami!";   // Password di accesso (testo in chiaro)
+$PASSWORD       = "cambiami!";   // Password di accesso (testo in chiaro)
 
 // ── 📤 UPLOAD ────────────────────────────────────────────────────
 // ⚠️  Se LOGIN_REQUIRED = false, imposta UPLOAD_ENABLED = false (sito pubblico!)
@@ -53,7 +56,7 @@ tramite il <a href="https://forms.gle/RK9vr5eUMu722sYX9" target="_blank" rel="no
 // ── 🎨 TESTI INTERFACCIA PRINCIPALE ─────────────────────────────
 $MAIN_TITLE = '<i class="fas fa-folder-open lock-color" style="margin-right:5px;"></i> FILE MANAGER – SEBASTIANO BASILE';
 $MAIN_NOTE  = ' <i class="fas fa-lock" style="color:#ffc107;" title="Accesso riservato"></i> = Accesso riservato &nbsp; <i class="fas fa-external-link-alt" title="Apre in nuova scheda"></i> = Nuova scheda.';
-$CREDITS    = 'INFO e crediti: <a href="https://superscuola.com" target="_blank" rel="noopener noreferrer">Sebastiano Basile</a> | <a href="https://github.com/sebastianobasile/file-manager" target="_blank" rel="noopener noreferrer">GitHub</a> ©️';
+$CREDITS    = 'INFO e crediti: <a href="https://superscuola.com" target="_blank" rel="noopener noreferrer">Sebastiano Basile</a> | <a href="https://github.com/sebastianobasile/file-manager" target="_blank" rel="noopener noreferrer">GitHub</a> ©️ &nbsp;·&nbsp; <span style="opacity:.7;">' . $APP_VERSION . '</span>';
 
 // ╚══════════════════════════════════════════════════════════════╝
 //                    FINE CONFIGURAZIONE
